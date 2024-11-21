@@ -1,15 +1,18 @@
 #![no_std]
 #![no_main]
+extern crate alloc;
 
+use alloc::string::String;
 use core::time::Duration;
-use arduino_hal::{Delay, I2c, Peripherals};
+use arduino_hal::{pins, Delay, I2c, Peripherals, Pins};
 use arduino_hal::hal::port::Dynamic;
-use arduino_hal::port::mode::{OpenDrain, Output};
+use arduino_hal::pac::TWI;
+use arduino_hal::port::mode::{Input, OpenDrain, Output, PullUp};
 use arduino_hal::port::Pin;
-use bme680::{Bme680, I2CAddress, IIRFilterSize, OversamplingSetting, PowerMode, SettingsBuilder};
+use bme680::{Bme680, FieldData, I2CAddress, IIRFilterSize, OversamplingSetting, PowerMode, SettingsBuilder};
 use lcd1602_driver::command::DataWidth;
 use lcd1602_driver::lcd;
-use lcd1602_driver::lcd::Lcd;
+use lcd1602_driver::lcd::{Basic, Ext, Lcd};
 use lcd1602_driver::sender::ParallelSender;
 use panic_halt as _;
 
@@ -58,12 +61,99 @@ use panic_halt as _;
 /// Sprinklers:
 ///     +: P1
 ///     -: GND
+///
+/// Roof Vent:
+///     +: A3
+///     -: GND
 
 #[arduino_hal::entry]
 fn main() -> ! {
     let dp = Peripherals::take().unwrap();
     let twi = dp.TWI;
-    let pins = arduino_hal::pins!(dp);
+    let pins = pins!(dp);
+    let devices = setup(pins, twi);
+    let current_screen = Screen::Loading;
+
+    loop {
+        arduino_hal::delay_ms(1000);
+
+        match current_screen {
+            Screen::Loading => {
+
+            }
+            Screen::Temp => {
+
+            }
+            Screen::Humidity => {}
+            Screen::Pressure => {}
+            Screen::Date => {}
+            Screen::Warning => {}
+        }
+    }
+}
+
+/// Gets data from the BME sensor
+/// param bme: BME sensor instance
+/// param delayer: BME sensor delay
+fn get_bme_data(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay) -> FieldData {
+    prep_bme(bme, delayer);
+    let (data, _state) = bme.get_sensor_data(delayer).map_err(|e| {
+        log::error!("Unable to get sensor data {e:?}");
+    }).unwrap();
+    data
+}
+
+/// Gets temperature in Fahrenheit
+/// param data: FieldData from get_bme_data()
+fn get_temperature(data: FieldData) -> f32 {
+    data.temperature_celsius() * (9./5.) + 32.
+}
+
+/// Gets percent humidity
+/// param data: FieldData from get_bme_data()
+fn get_humidity(data: FieldData) -> f32 {
+    data.humidity_percent()
+}
+
+/// Gets atmospheric pressure in atmospheres
+/// param data: FieldData from get_bme_data()
+fn get_pressure(data: FieldData) -> f32 {
+    data.pressure_hpa() * 0.000987
+}
+
+/// Sets the sensor's mode to Forced
+/// This should be called before getting data
+/// param bme: BME sensor reference
+/// param delayer: BME delay
+fn prep_bme(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay) {
+    bme.set_sensor_mode(delayer, PowerMode::ForcedMode)
+        .map_err(|e| {
+            log::error!("Unable to set sensor mode {e:?}");
+        }).unwrap();
+}
+
+/// Basic function for rendering text onto the LCD
+/// param line_one: optionally render text on the first line
+/// param line_two: optionally render text on the second line
+/// param lcd: LCD instance
+fn render_screen(line_one: Option<String>, line_two: Option<String>, mut lcd: Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay<>>) {
+    // Set cursor to first line if needed
+    if let Some(line_one) = line_one {
+        lcd.set_cursor_pos((0, 0));
+        lcd.write_str_to_cur(&*line_one);
+    }
+
+    // Set cursor to second line if needed
+    if let Some(line_two) = line_two {
+        lcd.set_cursor_pos((0, 1));
+        lcd.write_str_to_cur(&*line_two);
+    }
+}
+
+/// Creates all sensors and LCD
+/// param pins: instance of all Pins
+/// param twi: instance of TWI
+fn setup(pins: Pins, twi: TWI) -> (Bme680<I2c, Delay>, Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay>, Pin<Input<PullUp>, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Output, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Output, Dynamic>, Pin<Output, Dynamic>) {
     let mut delayer = Delay::new();
     let i2c = I2c::new(
         twi,
@@ -73,7 +163,7 @@ fn main() -> ! {
     );
 
     // Set up BME680
-    let mut dev = Bme680::init(i2c, &mut delayer, I2CAddress::Primary).map_err(|e| {
+    let mut bme = Bme680::init(i2c, &mut delayer, I2CAddress::Primary).map_err(|e| {
         log::error!("Error at bme680 init {e:?}");
     }).unwrap();
 
@@ -86,12 +176,12 @@ fn main() -> ! {
         .with_run_gas(true)
         .build();
 
-    dev.set_sensor_settings(&mut delayer, settings)
+    bme.set_sensor_settings(&mut delayer, settings)
         .map_err(|e| {
             log::error!("Unable to apply sensor settings {e:?}");
         }).unwrap();
 
-    dev.set_sensor_mode(&mut delayer, PowerMode::ForcedMode)
+    bme.set_sensor_mode(&mut delayer, PowerMode::ForcedMode)
         .map_err(|e| {
             log::error!("Unable to set sensor mode {e:?}");
         }).unwrap();
@@ -117,21 +207,32 @@ fn main() -> ! {
         10,
     );
 
+    // Set up button up
+    let up_button = pins.a0.into_pull_up_input().downgrade();
 
-    loop {
-        arduino_hal::delay_ms(1000);
-    }
-}
+    // Set up button down
+    let down_button = pins.a1.into_pull_up_input().downgrade();
 
-fn get_temperature(bme: &Bme680<I2c, Delay>) {
+    // Set up button select
+    let select_button = pins.a2.into_pull_up_input().downgrade();
 
-}
+    // Set up buzzer
+    let buzzer = pins.d9.into_output().downgrade();
 
-fn get_humidity() {
+    // Set up smoke detector
+    let smoke_detector = pins.d8.into_pull_up_input().downgrade();
 
+    // Set up sprinklers
+    let sprinklers = pins.d1.into_output().downgrade();
+
+    // Set up roof vent
+    let roof_vent = pins.a3.into_output().downgrade();
+
+    (bme, lcd, up_button, down_button, select_button, buzzer, smoke_detector, sprinklers, roof_vent)
 }
 
 enum Screen {
+    Loading,
     Temp,
     Humidity,
     Pressure,
