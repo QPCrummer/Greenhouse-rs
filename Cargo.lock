@@ -154,11 +154,8 @@ dependencies = [
  "embedded-hal 1.0.0",
  "heapless",
  "lcd1602-driver",
- "log",
- "nb 1.1.0",
  "panic-halt",
  "proc-macro2",
- "ufmt",
 ]
 
 [[package]]

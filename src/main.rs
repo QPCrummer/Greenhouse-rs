@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+
 use core::time::Duration;
 use core::fmt::Write;
 use arduino_hal::{pins, Delay, I2c, Peripherals, Pins};
@@ -70,7 +71,7 @@ fn main() -> ! {
     let dp = Peripherals::take().unwrap();
     let twi = dp.TWI;
     let pins = pins!(dp);
-    let (mut delayer, mut bme, mut lcd, up_button,
+    let (mut bme, mut lcd, up_button,
         down_button, select_button, mut buzzer, smoke_detector,
         mut sprinklers, mut roof_vent) = setup(pins, twi);
     let current_screen_index = 0;
@@ -78,6 +79,7 @@ fn main() -> ! {
     let mut data: FieldData = FieldData::default(); // TODO Make sure this is set to a valid value before using it
     let mut preferences: Preferences = Preferences::default();
 
+    let mut delayer = Delay::new();
     loop {
         arduino_hal::delay_ms(10);
 
@@ -117,6 +119,25 @@ fn main() -> ! {
                     }
 
                     data = get_bme_data(&mut bme, &mut delayer);
+
+                    // Check if temperature is valid
+                    let temp = get_temperature(&data);
+                    if temp < preferences.temperature.0 || temp > preferences.temperature.1 {
+                        // open vent
+                        let _ = roof_vent.set_high();
+                    } else {
+                        let _ = roof_vent.set_low();
+                    }
+                    
+                    // Check if humidity is valid
+                    let humidity = get_humidity(&data);
+                    if humidity < preferences.humidity.0 || humidity > preferences.humidity.1 {
+                        // enable sprinklers
+                        let _ = sprinklers.set_high();
+                    } else {
+                        // TODO Check to make sure it is not a water time
+                        let _ = sprinklers.set_low();
+                    }
                 }
             }
         } else {
@@ -264,7 +285,7 @@ fn should_update(up: &Pin<Input<PullUp>, Dynamic>, down: &Pin<Input<PullUp>, Dyn
 /// param pins: instance of all Pins
 /// param twi: instance of TWI
 /// returns: Delay, BME680, LCD, Up Button, Down Button, Selection Button, Buzzer, Smoke Detector, Sprinklers, Roof Vent
-fn setup(pins: Pins, twi: TWI) -> (Delay, Bme680<I2c, Delay>, Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay>, Pin<Input<PullUp>, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Output, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Output, Dynamic>, Pin<Output, Dynamic>) {
+fn setup(pins: Pins, twi: TWI) -> (Bme680<I2c, Delay>, Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay>, Pin<Input<PullUp>, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Output, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Output, Dynamic>, Pin<Output, Dynamic>) {
     let mut delayer = Delay::new();
     let i2c = I2c::new(
         twi,
@@ -340,7 +361,7 @@ fn setup(pins: Pins, twi: TWI) -> (Delay, Bme680<I2c, Delay>, Lcd<'static, 'stat
     // Set up roof vent
     let roof_vent = pins.a3.into_output().downgrade();
 
-    (delayer, bme, lcd, up_button, down_button, select_button, buzzer, smoke_detector, sprinklers, roof_vent)
+    (bme, lcd, up_button, down_button, select_button, buzzer, smoke_detector, sprinklers, roof_vent)
 }
 
 enum Screen {
