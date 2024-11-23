@@ -3,9 +3,8 @@
 
 use core::time::Duration;
 use core::fmt::Write;
-use arduino_hal::{pins, Delay, I2c, Peripherals, Pins};
+use arduino_hal::{pins, Delay, I2c, Peripherals};
 use arduino_hal::hal::port::Dynamic;
-use arduino_hal::pac::TWI;
 use arduino_hal::port::mode::{Input, OpenDrain, Output, PullUp};
 use arduino_hal::port::Pin;
 use bme680::{Bme680, FieldData, I2CAddress, IIRFilterSize, OversamplingSetting, PowerMode, SettingsBuilder};
@@ -68,18 +67,97 @@ use panic_halt as _;
 
 #[arduino_hal::entry]
 fn main() -> ! {
+    // Set up
     let dp = Peripherals::take().unwrap();
     let twi = dp.TWI;
     let pins = pins!(dp);
-    let (mut bme, mut lcd, up_button,
-        down_button, select_button, mut buzzer, smoke_detector,
-        mut sprinklers, mut roof_vent) = setup(pins, twi);
+
+    let mut delayer = Delay::new();
+    let i2c = I2c::new(
+        twi,
+        pins.a4.into_pull_up_input(),
+        pins.a5.into_pull_up_input(),
+        50000,
+    );
+
+    // Set up BME680
+    let mut bme = Bme680::init(i2c, &mut delayer, I2CAddress::Primary)
+        .map_err(|e| {
+            // TODO Handle error
+        }).unwrap();
+
+    let settings = SettingsBuilder::new()
+        .with_humidity_oversampling(OversamplingSetting::OS2x)
+        .with_pressure_oversampling(OversamplingSetting::OS4x)
+        .with_temperature_oversampling(OversamplingSetting::OS8x)
+        .with_temperature_filter(IIRFilterSize::Size3)
+        .with_gas_measurement(Duration::from_millis(1500), 320, 25)
+        .with_run_gas(true)
+        .build();
+
+    bme.set_sensor_settings(&mut delayer, settings)
+        .map_err(|e| {
+            // TODO Handle error
+        }).unwrap();
+
+    bme.set_sensor_mode(&mut delayer, PowerMode::ForcedMode)
+        .map_err(|e| {
+            // TODO Handle error
+        }).unwrap();
+
+    // Set up LCD1602
+    let mut sender = ParallelSender::<Pin<Output, Dynamic>,Pin<OpenDrain, Dynamic>,Pin<Output, Dynamic>, 4>::new_4pin(
+        pins.d2.into_output().downgrade(),
+        pins.d0.into_output().downgrade(),
+        pins.d3.into_output().downgrade(),
+        pins.d4.into_opendrain().downgrade(),
+        pins.d5.into_opendrain().downgrade(),
+        pins.d6.into_opendrain().downgrade(),
+        pins.d7.into_opendrain().downgrade(),
+        None,
+    );
+
+    let mut lcd_resources = LcdResources {
+        sender,
+        delayer,
+    };
+
+    let lcd_config = lcd::Config::default().set_data_width(DataWidth::Bit4);
+
+    let mut lcd = Lcd::new(
+        &mut lcd_resources.sender,
+        &mut lcd_resources.delayer,
+        lcd_config,
+        10,
+    );
+
+    // Set up button up
+    let up_button = pins.a0.into_pull_up_input().downgrade();
+
+    // Set up button down
+    let down_button = pins.a1.into_pull_up_input().downgrade();
+
+    // Set up button select
+    let select_button = pins.a2.into_pull_up_input().downgrade();
+
+    // Set up buzzer
+    let mut buzzer = pins.d9.into_output().downgrade();
+
+    // Set up smoke detector
+    let smoke_detector = pins.d8.into_pull_up_input().downgrade();
+
+    // Set up sprinklers
+    let mut sprinklers = pins.d1.into_output().downgrade();
+
+    // Set up roof vent
+    let mut roof_vent = pins.a3.into_output().downgrade();
+
     let current_screen_index = 0;
     let wait_time: u16 = 0;
     let mut data: FieldData = FieldData::default(); // TODO Make sure this is set to a valid value before using it
     let mut preferences: Preferences = Preferences::default();
 
-    let mut delayer = Delay::new();
+    // Main app loop
     loop {
         arduino_hal::delay_ms(10);
 
@@ -118,7 +196,7 @@ fn main() -> ! {
                         }
                     }
 
-                    data = get_bme_data(&mut bme, &mut delayer);
+                    data = get_bme_data(&mut bme, &mut lcd_resources.delayer);
 
                     // Check if temperature is valid
                     let temp = get_temperature(&data);
@@ -244,6 +322,11 @@ fn render_screen(line_one: Option<String<16>>, line_two: Option<String<16>>, lcd
     }
 }
 
+struct LcdResources {
+    sender: ParallelSender<Pin<Output, Dynamic>, Pin<OpenDrain, Dynamic>, Pin<Output, Dynamic>, 4>,
+    delayer: Delay,
+}
+
 enum RefreshAction {
     UP,
     DOWN,
@@ -279,89 +362,6 @@ fn should_update(up: &Pin<Input<PullUp>, Dynamic>, down: &Pin<Input<PullUp>, Dyn
         return (true, RefreshAction::SENSOR);
     }
     (false, RefreshAction::SENSOR) // It's ok to return SENSOR since it gets ignored
-}
-
-/// Creates all sensors and LCD
-/// param pins: instance of all Pins
-/// param twi: instance of TWI
-/// returns: Delay, BME680, LCD, Up Button, Down Button, Selection Button, Buzzer, Smoke Detector, Sprinklers, Roof Vent
-fn setup(pins: Pins, twi: TWI) -> (Bme680<I2c, Delay>, Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay>, Pin<Input<PullUp>, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Output, Dynamic>, Pin<Input<PullUp>, Dynamic>, Pin<Output, Dynamic>, Pin<Output, Dynamic>) {
-    let mut delayer = Delay::new();
-    let i2c = I2c::new(
-        twi,
-        pins.a4.into_pull_up_input(),
-        pins.a5.into_pull_up_input(),
-        50000,
-    );
-
-    // Set up BME680
-    let mut bme = Bme680::init(i2c, &mut delayer, I2CAddress::Primary)
-        .map_err(|e| {
-        // TODO Handle error
-    }).unwrap();
-
-    let settings = SettingsBuilder::new()
-        .with_humidity_oversampling(OversamplingSetting::OS2x)
-        .with_pressure_oversampling(OversamplingSetting::OS4x)
-        .with_temperature_oversampling(OversamplingSetting::OS8x)
-        .with_temperature_filter(IIRFilterSize::Size3)
-        .with_gas_measurement(Duration::from_millis(1500), 320, 25)
-        .with_run_gas(true)
-        .build();
-
-    bme.set_sensor_settings(&mut delayer, settings)
-        .map_err(|e| {
-            // TODO Handle error
-        }).unwrap();
-
-    bme.set_sensor_mode(&mut delayer, PowerMode::ForcedMode)
-        .map_err(|e| {
-            // TODO Handle error
-        }).unwrap();
-
-    // Set up LCD1602
-    let mut sender = ParallelSender::<Pin<Output, Dynamic>,Pin<OpenDrain, Dynamic>,Pin<Output, Dynamic>, 4>::new_4pin(
-        pins.d2.into_output().downgrade(),
-        pins.d0.into_output().downgrade(),
-        pins.d3.into_output().downgrade(),
-        pins.d4.into_opendrain().downgrade(),
-        pins.d5.into_opendrain().downgrade(),
-        pins.d6.into_opendrain().downgrade(),
-        pins.d7.into_opendrain().downgrade(),
-        None,
-    );
-
-    let lcd_config = lcd::Config::default().set_data_width(DataWidth::Bit4);
-
-    let lcd = Lcd::new(
-        &mut sender,
-        &mut delayer,
-        lcd_config,
-        10,
-    );
-
-    // Set up button up
-    let up_button = pins.a0.into_pull_up_input().downgrade();
-
-    // Set up button down
-    let down_button = pins.a1.into_pull_up_input().downgrade();
-
-    // Set up button select
-    let select_button = pins.a2.into_pull_up_input().downgrade();
-
-    // Set up buzzer
-    let buzzer = pins.d9.into_output().downgrade();
-
-    // Set up smoke detector
-    let smoke_detector = pins.d8.into_pull_up_input().downgrade();
-
-    // Set up sprinklers
-    let sprinklers = pins.d1.into_output().downgrade();
-
-    // Set up roof vent
-    let roof_vent = pins.a3.into_output().downgrade();
-
-    (bme, lcd, up_button, down_button, select_button, buzzer, smoke_detector, sprinklers, roof_vent)
 }
 
 enum Screen {
