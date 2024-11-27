@@ -7,7 +7,7 @@ use arduino_hal::{pins, Delay, I2c, Peripherals};
 use arduino_hal::hal::port::Dynamic;
 use arduino_hal::port::mode::{Input, OpenDrain, Output, PullUp};
 use arduino_hal::port::Pin;
-use bme680::{Bme680, FieldData, I2CAddress, IIRFilterSize, OversamplingSetting, PowerMode, SettingsBuilder};
+use bme680::{Bme680, FieldData, FieldDataCondition, I2CAddress, IIRFilterSize, OversamplingSetting, PowerMode, SettingsBuilder};
 use heapless::String;
 use lcd1602_driver::command::DataWidth;
 use lcd1602_driver::lcd;
@@ -67,6 +67,9 @@ use panic_halt as _;
 
 #[arduino_hal::entry]
 fn main() -> ! {
+    // Cooldowns
+    let mut button_cooldown: u8 = 50; // 500ms cooldown
+
     // Set up
     let dp = Peripherals::take().unwrap();
     let twi = dp.TWI;
@@ -81,10 +84,7 @@ fn main() -> ! {
     );
 
     // Set up BME680
-    let mut bme = Bme680::init(i2c, &mut delayer, I2CAddress::Primary)
-        .map_err(|e| {
-            // TODO Handle error
-        }).unwrap();
+    let mut bme = Bme680::init(i2c, &mut delayer, I2CAddress::Primary).unwrap();
 
     let settings = SettingsBuilder::new()
         .with_humidity_oversampling(OversamplingSetting::OS2x)
@@ -95,15 +95,9 @@ fn main() -> ! {
         .with_run_gas(true)
         .build();
 
-    bme.set_sensor_settings(&mut delayer, settings)
-        .map_err(|e| {
-            // TODO Handle error
-        }).unwrap();
+    bme.set_sensor_settings(&mut delayer, settings).unwrap();
 
-    bme.set_sensor_mode(&mut delayer, PowerMode::ForcedMode)
-        .map_err(|e| {
-            // TODO Handle error
-        }).unwrap();
+    bme.set_sensor_mode(&mut delayer, PowerMode::ForcedMode).unwrap();
 
     // Set up LCD1602
     let mut sender = ParallelSender::<Pin<Output, Dynamic>,Pin<OpenDrain, Dynamic>,Pin<Output, Dynamic>, 4>::new_4pin(
@@ -117,16 +111,11 @@ fn main() -> ! {
         None,
     );
 
-    let mut lcd_resources = LcdResources {
-        sender,
-        delayer,
-    };
-
     let lcd_config = lcd::Config::default().set_data_width(DataWidth::Bit4);
 
     let mut lcd = Lcd::new(
-        &mut lcd_resources.sender,
-        &mut lcd_resources.delayer,
+        &mut sender,
+        &mut delayer,
         lcd_config,
         10,
     );
@@ -161,18 +150,31 @@ fn main() -> ! {
     loop {
         arduino_hal::delay_ms(10);
 
+        // Tick buttons
+        tick_buttons(button_cooldown);
+
         let (update_needed, action) = should_update(&up_button, &down_button, &select_button, wait_time, &mut preferences);
 
         if update_needed {
             match action {
                 RefreshAction::UP => {
-                    next_screen(current_screen_index, true);
+                    if button_usable(button_cooldown) {
+                        next_screen(current_screen_index, true);
+                        button_cooldown = 50;
+                    }
                 }
                 RefreshAction::DOWN => {
-                    next_screen(current_screen_index, false);
+                    if button_usable(button_cooldown) {
+                        next_screen(current_screen_index, false);
+                        button_cooldown = 50;
+                    }
                 }
                 RefreshAction::SELECT => {
                     // Handle SELECT action
+                    if button_usable(button_cooldown) {
+                        // TODO Handle selection button
+                        // TODO Implement Selection
+                    }
                 }
                 _ => {
                     if fire_present(&smoke_detector) {
@@ -196,7 +198,7 @@ fn main() -> ! {
                         }
                     }
 
-                    data = get_bme_data(&mut bme, &mut lcd_resources.delayer);
+                    data = get_bme_data(&mut bme, &mut delayer);
 
                     // Check if temperature is valid
                     let temp = get_temperature(&data);
@@ -206,7 +208,7 @@ fn main() -> ! {
                     } else {
                         let _ = roof_vent.set_low();
                     }
-                    
+
                     // Check if humidity is valid
                     let humidity = get_humidity(&data);
                     if humidity < preferences.humidity.0 || humidity > preferences.humidity.1 {
@@ -262,9 +264,7 @@ fn main() -> ! {
 /// param delayer: BME sensor delay
 fn get_bme_data(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay) -> FieldData {
     prep_bme(bme, delayer);
-    let (data, _state) = bme.get_sensor_data(delayer).map_err(|e| {
-        // TODO Handle error
-    }).unwrap();
+    let (data, _state) = bme.get_sensor_data(delayer).unwrap_or((FieldData::default(), FieldDataCondition::Unchanged));
     data
 }
 
@@ -291,10 +291,9 @@ fn get_pressure(data: &FieldData) -> f32 {
 /// param bme: BME sensor reference
 /// param delayer: BME delay
 fn prep_bme(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay) {
-    bme.set_sensor_mode(delayer, PowerMode::ForcedMode)
-        .map_err(|e| {
-            // TODO Handle error
-        }).unwrap();
+    if bme.set_sensor_mode(delayer, PowerMode::ForcedMode).is_err() {
+        // TODO Handle Error
+    }
 }
 
 /// Detects if a fire is present
@@ -309,6 +308,9 @@ fn fire_present(smoke_detector: &Pin<Input<PullUp>>) -> bool {
 /// param line_two: optionally render text on the second line
 /// param lcd: LCD instance
 fn render_screen(line_one: Option<String<16>>, line_two: Option<String<16>>, lcd: &mut Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay<>>) {
+    // Reset screen
+    lcd.clean_display();
+
     // Set cursor to first line if needed
     if let Some(line_one) = line_one {
         lcd.set_cursor_pos((0, 0));
@@ -320,11 +322,6 @@ fn render_screen(line_one: Option<String<16>>, line_two: Option<String<16>>, lcd
         lcd.set_cursor_pos((0, 1));
         lcd.write_str_to_cur(&*line_two);
     }
-}
-
-struct LcdResources {
-    sender: ParallelSender<Pin<Output, Dynamic>, Pin<OpenDrain, Dynamic>, Pin<Output, Dynamic>, 4>,
-    delayer: Delay,
 }
 
 enum RefreshAction {
@@ -362,6 +359,16 @@ fn should_update(up: &Pin<Input<PullUp>, Dynamic>, down: &Pin<Input<PullUp>, Dyn
         return (true, RefreshAction::SENSOR);
     }
     (false, RefreshAction::SENSOR) // It's ok to return SENSOR since it gets ignored
+}
+
+fn button_usable(cooldown: u8) -> bool {
+    cooldown == 0
+}
+
+fn tick_buttons(mut cooldown: u8) {
+    if cooldown > 0 {
+        cooldown -= 1;
+    }
 }
 
 enum Screen {
