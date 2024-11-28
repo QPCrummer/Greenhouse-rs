@@ -9,7 +9,7 @@ use arduino_hal::port::mode::{Input, OpenDrain, Output, PullUp};
 use arduino_hal::port::Pin;
 use bme680::{Bme680, FieldData, FieldDataCondition, I2CAddress, IIRFilterSize, OversamplingSetting, PowerMode, SettingsBuilder};
 use heapless::String;
-use lcd1602_driver::command::DataWidth;
+use lcd1602_driver::command::{DataWidth, State};
 use lcd1602_driver::lcd;
 use lcd1602_driver::lcd::{Basic, Ext, Lcd};
 use lcd1602_driver::sender::ParallelSender;
@@ -172,8 +172,264 @@ fn main() -> ! {
                 RefreshAction::SELECT => {
                     // Handle SELECT action
                     if button_usable(button_cooldown) {
-                        // TODO Handle selection button
-                        // TODO Implement Selection
+                        lcd.clean_display();
+                        let mut editing_lower: bool = true;
+                        let mut update_date: bool = false;
+                        match current_screen_index {
+                            0 => {
+                                // Temp
+                                for _ in 0..2 {
+                                    let mut info_line: String<16> = String::new();
+                                    write!(&mut info_line, "({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap();
+                                    render_edit_screen(info_line, editing_lower, &mut lcd);
+
+                                    loop {
+                                        arduino_hal::delay_ms(500);
+
+                                        if update_date {
+                                            preferences.tick_time();
+                                        }
+                                        update_date = !update_date;
+
+                                        if up_button.is_high() {
+                                            if editing_lower {
+                                                if preferences.temperature.0 < 1.0 {
+                                                    preferences.temperature.0 += 1.0;
+                                                }
+                                            } else {
+                                                if preferences.temperature.1 < 1.0 {
+                                                    preferences.temperature.1 += 1.0;
+                                                }
+                                            }
+                                            break;
+                                        } else if down_button.is_high() {
+                                            if editing_lower {
+                                                if preferences.temperature.0 > 0.0 {
+                                                    preferences.temperature.0 -= 1.0;
+                                                }
+                                            } else {
+                                                if preferences.temperature.1 > 0.0 {
+                                                    preferences.temperature.1 -= 1.0;
+                                                }
+                                            }
+                                            break;
+                                        } else if select_button.is_high() {
+                                            editing_lower = false;
+                                            lcd.set_cursor_blink_state(State::Off);
+                                            break;
+                                        }
+                                    }
+                                }
+                                // Check legality
+                                if preferences.temperature.0 > preferences.temperature.1 {
+                                    let temp = preferences.temperature.0;
+                                    preferences.temperature.0 = preferences.temperature.1;
+                                    preferences.temperature.1 = temp;
+                                }
+                            }
+                            1 => {
+                                // Humidity
+                                for _ in 0..2 {
+                                    let mut info_line: String<16> = String::new();
+                                    write!(&mut info_line, "({}%, {}%)", preferences.humidity.0 * 100., preferences.humidity.1 * 100.).unwrap();
+                                    render_edit_screen(info_line, editing_lower, &mut lcd);
+
+                                    loop {
+                                        arduino_hal::delay_ms(500);
+
+                                        if update_date {
+                                            preferences.tick_time();
+                                        }
+                                        update_date = !update_date;
+
+                                        if up_button.is_high() {
+                                            if editing_lower {
+                                                if preferences.humidity.0 < 1.0 {
+                                                    preferences.humidity.0 += 0.01;
+                                                }
+                                            } else {
+                                                if preferences.humidity.1 < 1.0 {
+                                                    preferences.humidity.1 += 0.01;
+                                                }
+                                            }
+                                            break;
+                                        } else if down_button.is_high() {
+                                            if editing_lower {
+                                                if preferences.humidity.0 > 0.0 {
+                                                    preferences.humidity.0 -= 0.01;
+                                                }
+                                            } else {
+                                                if preferences.humidity.1 > 0.0 {
+                                                    preferences.humidity.1 -= 0.01;
+                                                }
+                                            }
+                                            break;
+                                        } else if select_button.is_high() {
+                                            editing_lower = false;
+                                            lcd.set_cursor_blink_state(State::Off);
+                                            break;
+                                        }
+                                    }
+                                }
+                                // Check legality
+                                if preferences.humidity.0 > preferences.humidity.1 {
+                                    let temp = preferences.humidity.0;
+                                    preferences.humidity.0 = preferences.humidity.1;
+                                    preferences.humidity.1 = temp;
+                                }
+                            },
+                            3 => {
+                                // Date
+                                let mut refresh: bool = true;
+
+                                // Minute
+                                loop {
+                                    if refresh {
+                                        let mut min_line: String<16> = String::new();
+                                        write!(&mut min_line, "Minute: {}", preferences.date.1).unwrap();
+                                        render_date_edit_screen(min_line, &mut lcd);
+                                        refresh = false;
+                                    }
+
+                                    arduino_hal::delay_ms(500);
+
+                                    if update_date {
+                                        preferences.tick_time();
+                                    }
+                                    update_date = !update_date;
+
+                                    if up_button.is_high() {
+                                        preferences.date.1 = (preferences.date.1 + 1) % 60;
+                                        refresh = true;
+                                    } else if down_button.is_high() {
+                                        preferences.date.1 = (preferences.date.1 + 59) % 60;
+                                        refresh = true;
+                                    } else if select_button.is_high() {
+                                        refresh = true;
+                                        break;
+                                    }
+                                }
+
+                                // Hour
+                                loop {
+                                    if refresh {
+                                        let mut hour_line: String<16> = String::new();
+                                        write!(&mut hour_line, "Hour: {}", preferences.date.2).unwrap();
+                                        render_date_edit_screen(hour_line, &mut lcd);
+                                        refresh = false;
+                                    }
+                                    arduino_hal::delay_ms(500);
+
+                                    if update_date {
+                                        preferences.tick_time();
+                                    }
+                                    update_date = !update_date;
+
+                                    if up_button.is_high() {
+                                        preferences.date.2 = (preferences.date.2 + 1) % 24;
+                                        refresh = true;
+                                    } else if down_button.is_high() {
+                                        preferences.date.2 = (preferences.date.2 + 23) % 24;
+                                        refresh = true;
+                                    } else if select_button.is_high() {
+                                        refresh = true;
+                                        break;
+                                    }
+                                }
+
+                                // Day
+                                loop {
+                                    if refresh {
+                                        let mut day_line: String<16> = String::new();
+                                        write!(&mut day_line, "Day: {}", preferences.date.3).unwrap();
+                                        render_date_edit_screen(day_line, &mut lcd);
+                                        refresh = false;
+                                    }
+                                    arduino_hal::delay_ms(500);
+
+                                    if update_date {
+                                        preferences.tick_time();
+                                    }
+                                    update_date = !update_date;
+
+                                    if up_button.is_high() {
+                                        preferences.date.3 = preferences.change_days(true);
+                                        refresh = true;
+                                    } else if down_button.is_high() {
+                                        preferences.date.3 = preferences.change_days(false);
+                                        refresh = true;
+                                    } else if select_button.is_high() {
+                                        refresh = true;
+                                        break;
+                                    }
+                                }
+
+                                // Month
+                                // TODO Changing this will for sure break the day counter...
+                                // TODO But I couldn't care less :)
+                                loop {
+                                    if refresh {
+                                        let mut mon_line: String<16> = String::new();
+                                        write!(&mut mon_line, "Month: {}", preferences.date.4).unwrap();
+                                        render_date_edit_screen(mon_line, &mut lcd);
+                                        refresh = false;
+                                    }
+                                    arduino_hal::delay_ms(500);
+
+                                    if update_date {
+                                        preferences.tick_time();
+                                    }
+                                    update_date = !update_date;
+
+                                    if up_button.is_high() {
+                                        preferences.date.4 = (preferences.date.4 + 1) % 12;
+                                        refresh = true;
+                                    } else if down_button.is_high() {
+                                        preferences.date.4 = (preferences.date.4 + 11) % 12;
+                                        refresh = true;
+                                    } else if select_button.is_high() {
+                                        refresh = true;
+                                        break;
+                                    }
+                                }
+
+                                // Year
+                                loop {
+                                    if refresh {
+                                        let mut yr_line: String<16> = String::new();
+                                        write!(&mut yr_line, "Year: {}", preferences.date.5).unwrap();
+                                        render_date_edit_screen(yr_line, &mut lcd);
+                                        refresh = false;
+                                    }
+                                    arduino_hal::delay_ms(500);
+
+                                    if update_date {
+                                        preferences.tick_time();
+                                    }
+                                    update_date = !update_date;
+
+                                    if up_button.is_high() {
+                                        // I'm going to assume that no one is stupid enough
+                                        // to actually hit the u16 integer limit
+                                        preferences.date.5 += 1;
+                                        refresh = true;
+                                    } else if down_button.is_high() {
+                                        if preferences.date.5 != 0 {
+                                            preferences.date.5 -= 1;
+                                        }
+                                        refresh = true;
+                                    } else if select_button.is_high() {
+                                        refresh = true;
+                                        break;
+                                    }
+                                }
+
+                                lcd.set_cursor_blink_state(State::Off);
+                            }
+                            _ => {
+                                // Pressure has no configuration
+                            }
+                        }
                     }
                 }
                 _ => {
@@ -188,7 +444,9 @@ fn main() -> ! {
                             &roof_vent.set_low();
                             // Sound alarm
                             &buzzer.set_high();
-                            arduino_hal::delay_ms(100);
+                            arduino_hal::delay_ms(1000);
+                            // Still keep track of time though
+                            preferences.tick_time();
                         }
                         // Safe; Disable sprinklers and open vent if it was open before
                         &buzzer.set_low();
@@ -198,7 +456,7 @@ fn main() -> ! {
                         }
                     }
 
-                    data = get_bme_data(&mut bme, &mut delayer);
+                    data = get_bme_data(&mut bme, &mut delayer, &mut buzzer);
 
                     // Check if temperature is valid
                     let temp = get_temperature(&data);
@@ -215,7 +473,7 @@ fn main() -> ! {
                         // enable sprinklers
                         let _ = sprinklers.set_high();
                     } else {
-                        // TODO Check to make sure it is not a water time
+                        // TODO Check to make sure it is not a watering time
                         let _ = sprinklers.set_low();
                     }
                 }
@@ -262,8 +520,9 @@ fn main() -> ! {
 /// Gets data from the BME sensor
 /// param bme: BME sensor instance
 /// param delayer: BME sensor delay
-fn get_bme_data(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay) -> FieldData {
-    prep_bme(bme, delayer);
+/// param alarm: Buzzer Pin
+fn get_bme_data(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay, alarm: &mut Pin<Output, Dynamic>) -> FieldData {
+    prep_bme(bme, delayer, alarm);
     let (data, _state) = bme.get_sensor_data(delayer).unwrap_or((FieldData::default(), FieldDataCondition::Unchanged));
     data
 }
@@ -288,11 +547,18 @@ fn get_pressure(data: &FieldData) -> f32 {
 
 /// Sets the sensor's mode to Forced
 /// This should be called before getting data
+/// If there is an error setting up, an alarm is sounded
 /// param bme: BME sensor reference
 /// param delayer: BME delay
-fn prep_bme(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay) {
+/// param alarm: Buzzer Pin
+fn prep_bme(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay, alarm: &mut Pin<Output, Dynamic>) {
     if bme.set_sensor_mode(delayer, PowerMode::ForcedMode).is_err() {
-        // TODO Handle Error
+        loop {
+            alarm.set_high();
+            arduino_hal::delay_ms(500);
+            alarm.set_low();
+            arduino_hal::delay_ms(1000);
+        }
     }
 }
 
@@ -322,6 +588,43 @@ fn render_screen(line_one: Option<String<16>>, line_two: Option<String<16>>, lcd
         lcd.set_cursor_pos((0, 1));
         lcd.write_str_to_cur(&*line_two);
     }
+}
+
+/// Renders the Preferences on screen with a blinking indicator cursor
+/// param line: The preferences line
+/// param left_cursor: If the lower bound is selected
+/// param lcd: LCD instance
+fn render_edit_screen(line: String<16>, left_cursor: bool, lcd: &mut Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay<>>) {
+    // Clear
+    lcd.clean_display();
+
+    // Write top info
+    lcd.set_cursor_pos((0, 0));
+    lcd.write_str_to_cur(&line);
+
+    // Create bottom blinking cursor
+    if left_cursor {
+        lcd.set_cursor_pos((0, 1));
+    } else {
+        lcd.set_cursor_pos((15, 1));
+    }
+    lcd.set_cursor_blink_state(State::On);
+}
+
+/// Renders the current date unit (min, hr, day, etc.) on the first line with a central blinking cursor on the second line
+/// param line: The date line
+/// param lcd: LCD instance
+fn render_date_edit_screen(line: String<16>, lcd: &mut Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay<>>) {
+    // Clear
+    lcd.clean_display();
+
+    // Write date segment
+    lcd.set_cursor_pos((0, 0));
+    lcd.write_str_to_cur(&line);
+
+    // Create blinking cursor
+    lcd.set_cursor_pos((7, 1));
+    lcd.set_cursor_blink_state(State::On);
 }
 
 enum RefreshAction {
@@ -361,10 +664,15 @@ fn should_update(up: &Pin<Input<PullUp>, Dynamic>, down: &Pin<Input<PullUp>, Dyn
     (false, RefreshAction::SENSOR) // It's ok to return SENSOR since it gets ignored
 }
 
+/// Checks if the button cooldown is active or not
+/// param cooldown: The amount of cooldown left
+/// returns if the button cooldown is inactive
 fn button_usable(cooldown: u8) -> bool {
     cooldown == 0
 }
 
+/// Ticks the cooldown for buttons
+/// param cooldown: The amount of cooldown left
 fn tick_buttons(mut cooldown: u8) {
     if cooldown > 0 {
         cooldown -= 1;
@@ -478,6 +786,8 @@ impl Preferences {
     }
 
     /// Gets the date in the HH:MM:SS DD/MM/YYYY format
+    /// Since the indexes start at 0 and months and days start at 1,
+    /// the function ensures that 1 is added
     /// returns: (HH:MM:SS, DD/MM/YYYY)
     fn get_date_formatted(&mut self) -> (String<8>, String<10>) {
         let (sec, min, hour, day, month, year) = self.date;
@@ -486,13 +796,30 @@ impl Preferences {
         let mut val1: String<8> = Default::default();
         let mut val2: String<10> = Default::default();
         write!(&mut val1, "{:02}:{:02}:{:02}", hour, min, sec).unwrap();
-        write!(&mut val2, "{:02}/{:02}/{:04}", day, month, year).unwrap();
+        write!(&mut val2, "{:02}/{:02}/{:04}", day + 1, month + 1, year).unwrap();
         (val1, val2)
     }
 
     /// Calculates if it is leap year
+    /// param year: The current year
     fn is_leap_year(year: u16) -> bool {
         year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
     }
-}
 
+    /// Gets the next index for the current day depending on the month and leap year
+    /// param increment: If the values are incrementing (not decrementing)
+    /// returns the next day's index
+    fn change_days(&self, increment: bool) -> u8 {
+        let days_in_month: u8 = match self.date.4 {
+            2 => if Self::is_leap_year(self.date.5) { 29 } else { 28 },
+            4 | 6 | 9 | 11 => 30,
+            _ => 31,
+        };
+
+        if increment {
+            (self.date.3 + 1) % days_in_month
+        } else {
+            (self.date.3 + (days_in_month - 1)) % days_in_month
+        }
+    }
+}
