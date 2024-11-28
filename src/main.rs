@@ -175,15 +175,19 @@ fn main() -> ! {
                         lcd.clean_display();
                         let mut editing_lower: bool = true;
                         let mut update_date: bool = false;
+                        let mut refresh: bool = true;
                         match current_screen_index {
                             0 => {
                                 // Temp
                                 for _ in 0..2 {
-                                    let mut info_line: String<16> = String::new();
-                                    write!(&mut info_line, "({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap();
-                                    render_edit_screen(info_line, editing_lower, &mut lcd);
-
                                     loop {
+                                        if refresh {
+                                            let mut info_line: String<16> = String::new();
+                                            write!(&mut info_line, "({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap();
+                                            render_edit_screen(info_line, editing_lower, &mut lcd);
+                                            refresh = false;
+                                        }
+
                                         arduino_hal::delay_ms(500);
 
                                         if update_date {
@@ -201,7 +205,7 @@ fn main() -> ! {
                                                     preferences.temperature.1 += 1.0;
                                                 }
                                             }
-                                            break;
+                                            refresh = true;
                                         } else if down_button.is_high() {
                                             if editing_lower {
                                                 if preferences.temperature.0 > 0.0 {
@@ -212,10 +216,11 @@ fn main() -> ! {
                                                     preferences.temperature.1 -= 1.0;
                                                 }
                                             }
-                                            break;
+                                            refresh = true;
                                         } else if select_button.is_high() {
                                             editing_lower = false;
                                             lcd.set_cursor_blink_state(State::Off);
+                                            refresh = true;
                                             break;
                                         }
                                     }
@@ -230,11 +235,14 @@ fn main() -> ! {
                             1 => {
                                 // Humidity
                                 for _ in 0..2 {
-                                    let mut info_line: String<16> = String::new();
-                                    write!(&mut info_line, "({}%, {}%)", preferences.humidity.0 * 100., preferences.humidity.1 * 100.).unwrap();
-                                    render_edit_screen(info_line, editing_lower, &mut lcd);
-
                                     loop {
+                                        if refresh {
+                                            let mut info_line: String<16> = String::new();
+                                            write!(&mut info_line, "({}%, {}%)", preferences.humidity.0 * 100., preferences.humidity.1 * 100.).unwrap();
+                                            render_edit_screen(info_line, editing_lower, &mut lcd);
+                                            refresh = false;
+                                        }
+
                                         arduino_hal::delay_ms(500);
 
                                         if update_date {
@@ -252,7 +260,7 @@ fn main() -> ! {
                                                     preferences.humidity.1 += 0.01;
                                                 }
                                             }
-                                            break;
+                                            refresh = true;
                                         } else if down_button.is_high() {
                                             if editing_lower {
                                                 if preferences.humidity.0 > 0.0 {
@@ -263,10 +271,11 @@ fn main() -> ! {
                                                     preferences.humidity.1 -= 0.01;
                                                 }
                                             }
-                                            break;
+                                            refresh = true;
                                         } else if select_button.is_high() {
                                             editing_lower = false;
                                             lcd.set_cursor_blink_state(State::Off);
+                                            refresh = true;
                                             break;
                                         }
                                     }
@@ -280,7 +289,6 @@ fn main() -> ! {
                             },
                             3 => {
                                 // Date
-                                let mut refresh: bool = true;
 
                                 // Minute
                                 loop {
@@ -426,6 +434,90 @@ fn main() -> ! {
 
                                 lcd.set_cursor_blink_state(State::Off);
                             }
+                            4 => {
+                                let mut remove: bool = false;
+                                for index in 0..4 {
+                                    loop {
+                                        if refresh {
+                                            let info_line: String<16> = preferences.format_watering_time();
+                                            render_edit_screen(info_line, index < 2, &mut lcd);
+                                            refresh = false;
+                                        }
+
+                                        arduino_hal::delay_ms(500);
+
+                                        if update_date {
+                                            preferences.tick_time();
+                                        }
+                                        update_date = !update_date;
+
+                                        if up_button.is_high() && down_button.is_high() {
+                                            remove = true;
+                                            break;
+                                        }
+
+                                        if up_button.is_high() {
+                                            if preferences.watering.is_none() {
+                                                preferences.set_default_watering_time();
+                                            } else {
+                                                match index {
+                                                    0 => {
+                                                        preferences.watering.unwrap().1 = (preferences.watering.unwrap().1 + 1) % 24;
+                                                    }
+                                                    1 => {
+                                                        preferences.watering.unwrap().0 = (preferences.watering.unwrap().0 + 1) % 60;
+                                                    }
+                                                    2 => {
+                                                        preferences.watering.unwrap().3 = (preferences.watering.unwrap().3 + 1) % 24;
+                                                    }
+                                                    3 => {
+                                                        preferences.watering.unwrap().2 = (preferences.watering.unwrap().2 + 1) % 60;
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            refresh = true;
+                                        } else if down_button.is_high() {
+                                            if preferences.watering.is_none() {
+                                                preferences.set_default_watering_time();
+                                            } else {
+                                                match index {
+                                                    0 => {
+                                                        preferences.watering.unwrap().1 = (preferences.watering.unwrap().1 + 23) % 24;
+                                                    }
+                                                    1 => {
+                                                        preferences.watering.unwrap().0 = (preferences.watering.unwrap().0 + 59) % 60;
+                                                    }
+                                                    2 => {
+                                                        preferences.watering.unwrap().3 = (preferences.watering.unwrap().3 + 23) % 24;
+                                                    }
+                                                    3 => {
+                                                        preferences.watering.unwrap().2 = (preferences.watering.unwrap().2 + 59) % 60;
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            refresh = true;
+                                        } else if select_button.is_high() {
+                                            refresh = true;
+                                            break;
+                                        }
+                                    }
+                                    if remove {
+                                        break;
+                                    }
+                                }
+                                // Check legality
+                                if !remove {
+                                    if (preferences.watering.unwrap().1 > preferences.watering.unwrap().3) || // Hours are incorrect
+                                        (preferences.watering.unwrap().1 == preferences.watering.unwrap().3 && // Minutes are incorrect assuming hours are equal
+                                            preferences.watering.unwrap().0 > preferences.watering.unwrap().2) {
+                                        let new_larger: (u8, u8) = (preferences.watering.unwrap().0, preferences.watering.unwrap().1);
+                                        let new_smaller: (u8, u8) = (preferences.watering.unwrap().2, preferences.watering.unwrap().3);
+                                        preferences.watering = Some((new_smaller.0, new_smaller.1, new_larger.0, new_larger.1));
+                                    }
+                                }
+                            }
                             _ => {
                                 // Pressure has no configuration
                             }
@@ -473,8 +565,14 @@ fn main() -> ! {
                         // enable sprinklers
                         let _ = sprinklers.set_high();
                     } else {
-                        // TODO Check to make sure it is not a watering time
                         let _ = sprinklers.set_low();
+                    }
+
+                    // Check if it is watering time
+                    if preferences.is_watering_time() {
+                        sprinklers.set_high();
+                    } else {
+                        sprinklers.set_low();
                     }
                 }
             }
@@ -486,7 +584,7 @@ fn main() -> ! {
         let current_screen = get_screen(current_screen_index).unwrap();
         match current_screen {
             Screen::Loading => {
-
+                // TODO Implement the loading plant
             }
             Screen::Temp => {
                 let mut upper_string: String<16> = Default::default();
@@ -510,6 +608,10 @@ fn main() -> ! {
             Screen::Date => {
                 let (time, date) = preferences.get_date_formatted();
                 render_screen(Some(time.parse().unwrap()), Some(date.parse().unwrap()), &mut lcd);
+            }
+            Screen::Watering => {
+                let time_formatted = preferences.format_watering_time();
+                render_screen(Some(time_formatted), None, &mut lcd);
             }
             _ => {
             }
@@ -686,6 +788,7 @@ enum Screen {
     Humidity,
     Pressure,
     Date,
+    Watering,
 }
 
 /// Gets the Screen from an index
@@ -697,6 +800,7 @@ fn get_screen(index: i8) -> Option<Screen> {
         1 => Some(Screen::Humidity),
         2 => Some(Screen::Pressure),
         3 => Some(Screen::Date),
+        4 => Some(Screen::Watering),
         _ => None,
     }
 }
@@ -709,8 +813,8 @@ fn next_screen(mut current_screen_index: i8, next: bool) -> Screen {
     let offset:i8 = if next { 1 } else { -1 };
     current_screen_index += offset;
     if current_screen_index < 0 {
-        current_screen_index = 3;
-    } else if current_screen_index > 3 {
+        current_screen_index = 4;
+    } else if current_screen_index > 4 {
         current_screen_index = 0;
     }
     get_screen(current_screen_index).unwrap()
@@ -720,6 +824,7 @@ pub struct Preferences {
     pub temperature: (f32, f32),
     pub humidity: (f32, f32),
     pub date: (u8, u8, u8, u8, u8, u16), // Sec, Min, Hour, Day, Month, Year
+    pub watering: Option<(u8, u8, u8, u8)>, // Start (Min, Hour), End (Min, Hour)
 }
 
 impl Default for Preferences {
@@ -728,6 +833,7 @@ impl Default for Preferences {
             temperature: (60.0, 80.0), // Ideal range is 60F - 80F
             humidity: (0.6, 0.7), // Ideal range is 60% - 70%
             date: (0, 0, 0, 1, 1, 2000), // Date: 00:00:00 Jan 1 2000
+            watering: None, // No default watering times set
         }
     }
 }
@@ -821,5 +927,36 @@ impl Preferences {
         } else {
             (self.date.3 + (days_in_month - 1)) % days_in_month
         }
+    }
+
+    /// Checks if it is time to enable the sprinklers
+    /// returns if the current time is within the watering time
+    /// returns false if there is no watering time set
+    fn is_watering_time(&self) -> bool {
+        if let Some(watering_time) = self.watering {
+            self.date.1 >= watering_time.0 && // Minutes are not too small
+                self.date.1 <= watering_time.2 && // Minutes are not too large
+                self.date.2 >= watering_time.1 && // Hours are not too small
+                self.date.2 <= watering_time.3 // Hours are not too large
+        } else {
+            false
+        }
+    }
+
+    /// Formats the watering time: HH:MM - HH:MM
+    /// Returns a String of length 16 containing the formatted times
+    fn format_watering_time(&self) -> String<16> {
+        let mut str: String<16> = String::new();
+        if let Some(watering_time) = self.watering {
+            write!(str, "{:02}:{:02} - {:02}:{:02}", watering_time.1, watering_time.0, watering_time.3, watering_time.2).unwrap();
+        } else {
+            write!(str, "None").unwrap();
+        }
+        str
+    }
+
+    /// Sets the watering time from 00:00 to 01:00
+    fn set_default_watering_time(&mut self) {
+        self.watering = Some((0, 0, 0, 1));
     }
 }
