@@ -65,6 +65,8 @@ use panic_halt as _;
 ///     +: A3
 ///     -: GND
 
+static mut SENDER: Option<ParallelSender<Pin<Output, Dynamic>, Pin<OpenDrain, Dynamic>, Pin<Output, Dynamic>, 4>> = None;
+static mut DELAY: Option<Delay> = None;
 #[arduino_hal::entry]
 fn main() -> ! {
     // Cooldowns
@@ -100,22 +102,25 @@ fn main() -> ! {
     bme.set_sensor_mode(&mut delayer, PowerMode::ForcedMode).unwrap();
 
     // Set up LCD1602
-    let mut sender = ParallelSender::<Pin<Output, Dynamic>,Pin<OpenDrain, Dynamic>,Pin<Output, Dynamic>, 4>::new_4pin(
-        pins.d2.into_output().downgrade(),
-        pins.d0.into_output().downgrade(),
-        pins.d3.into_output().downgrade(),
-        pins.d4.into_opendrain().downgrade(),
-        pins.d5.into_opendrain().downgrade(),
-        pins.d6.into_opendrain().downgrade(),
-        pins.d7.into_opendrain().downgrade(),
-        None,
-    );
+    unsafe {
+        SENDER = Some(ParallelSender::<Pin<Output, Dynamic>, Pin<OpenDrain, Dynamic>, Pin<Output, Dynamic>, 4>::new_4pin(
+            pins.d2.into_output().downgrade(),
+            pins.d0.into_output().downgrade(),
+            pins.d3.into_output().downgrade(),
+            pins.d4.into_opendrain().downgrade(),
+            pins.d5.into_opendrain().downgrade(),
+            pins.d6.into_opendrain().downgrade(),
+            pins.d7.into_opendrain().downgrade(),
+            None,
+        ));
+
+        DELAY = Some(delayer);
+    }
 
     let lcd_config = lcd::Config::default().set_data_width(DataWidth::Bit4);
-
     let mut lcd = Lcd::new(
-        &mut sender,
-        &mut delayer,
+        unsafe { SENDER.as_mut().unwrap() },
+        unsafe { DELAY.as_mut().unwrap() },
         lcd_config,
         10,
     );
@@ -146,6 +151,8 @@ fn main() -> ! {
     let mut data: FieldData = FieldData::default(); // TODO Make sure this is set to a valid value before using it
     let mut preferences: Preferences = Preferences::default();
 
+
+    let mut delayer = Delay::new();
     // Main app loop
     loop {
         arduino_hal::delay_ms(10);
