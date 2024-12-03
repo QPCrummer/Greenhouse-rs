@@ -592,9 +592,6 @@ fn main() -> ! {
 
         let current_screen = get_screen(current_screen_index).unwrap();
         match current_screen {
-            Screen::Loading => {
-                // TODO Implement the loading plant
-            }
             Screen::Temp => {
                 let mut upper_string: String<16> = Default::default();
                 uwrite!(&mut upper_string, "Temp: {}F", uFmt_f32::One(get_temperature(&data))).unwrap();
@@ -621,8 +618,6 @@ fn main() -> ! {
             Screen::Watering => {
                 let time_formatted = preferences.format_watering_time();
                 render_screen(Some(time_formatted), None, &mut lcd);
-            }
-            _ => {
             }
         }
     }
@@ -792,8 +787,6 @@ fn tick_buttons(mut cooldown: u8) {
 }
 
 enum Screen {
-    Loading,
-    Warning,
     Temp,
     Humidity,
     Pressure,
@@ -912,8 +905,8 @@ impl Preferences {
         let mut val1: String<8> = Default::default();
         let mut val2: String<10> = Default::default();
         // TODO Find a way to pad numbers <10 with a "0"
-        uwrite!(&mut val1, "{:?}:{:?}:{:?}", hour, min, sec).unwrap();
-        uwrite!(&mut val2, "{:?}/{:?}/{:?}", day + 1, month + 1, year).unwrap();
+        uwrite!(&mut val1, "{}:{}:{}", hour, min, sec).unwrap();
+        uwrite!(&mut val2, "{}/{}/{}", day + 1, month + 1, year).unwrap();
         (val1, val2)
     }
 
