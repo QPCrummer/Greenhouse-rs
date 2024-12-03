@@ -5,7 +5,7 @@ extern crate panic_halt;
 
 use core::time::Duration;
 use arduino_hal::{pins, Delay, I2c, Peripherals};
-use arduino_hal::hal::port::Dynamic;
+use arduino_hal::hal::port::{Dynamic, PB0, PB1, PC0, PC1, PC2};
 use arduino_hal::port::mode::{Input, OpenDrain, Output, PullUp};
 use arduino_hal::port::Pin;
 use bme680::{Bme680, FieldData, FieldDataCondition, I2CAddress, IIRFilterSize, OversamplingSetting, PowerMode, SettingsBuilder};
@@ -69,6 +69,7 @@ use ufmt_float::uFmt_f32;
 
 static mut SENDER: Option<ParallelSender<Pin<Output, Dynamic>, Pin<OpenDrain, Dynamic>, Pin<Output, Dynamic>, 4>> = None;
 static mut DELAY: Option<Delay> = None;
+
 #[arduino_hal::entry]
 fn main() -> ! {
     // Cooldowns
@@ -128,25 +129,25 @@ fn main() -> ! {
     );
 
     // Set up button up
-    let up_button = pins.a0.into_pull_up_input().downgrade();
+    let up_button = pins.a0.into_pull_up_input();
 
     // Set up button down
-    let down_button = pins.a1.into_pull_up_input().downgrade();
+    let down_button = pins.a1.into_pull_up_input();
 
     // Set up button select
-    let select_button = pins.a2.into_pull_up_input().downgrade();
+    let select_button = pins.a2.into_pull_up_input();
 
     // Set up buzzer
-    let mut buzzer = pins.d9.into_output().downgrade();
+    let mut buzzer = pins.d9.into_output();
 
     // Set up smoke detector
-    let smoke_detector = pins.d8.into_pull_up_input().downgrade();
+    let smoke_detector = pins.d8.into_pull_up_input();
 
     // Set up sprinklers
-    let mut sprinklers = pins.d1.into_output().downgrade();
+    let mut sprinklers = pins.d1.into_output();
 
     // Set up roof vent
-    let mut roof_vent = pins.a3.into_output().downgrade();
+    let mut roof_vent = pins.a3.into_output();
 
     let current_screen_index = 0;
     let wait_time: u16 = 0;
@@ -185,15 +186,15 @@ fn main() -> ! {
                         let mut editing_lower: bool = true;
                         let mut update_date: bool = false;
                         let mut refresh: bool = true;
+                        let mut info_str: String<16> = String::new();
                         match current_screen_index {
                             0 => {
                                 // Temp
                                 for _ in 0..2 {
                                     loop {
                                         if refresh {
-                                            let mut info_line: String<16> = String::new();
-                                            uwrite!(&mut info_line, "({}, {})", uFmt_f32::Zero(preferences.temperature.0), uFmt_f32::Zero(preferences.temperature.1)).unwrap();
-                                            render_edit_screen(info_line, editing_lower, &mut lcd);
+                                            uwrite!(&mut info_str, "({}, {})", uFmt_f32::Zero(preferences.temperature.0), uFmt_f32::Zero(preferences.temperature.1)).unwrap();
+                                            render_edit_screen(&info_str, editing_lower, &mut lcd);
                                             refresh = false;
                                         }
 
@@ -246,9 +247,8 @@ fn main() -> ! {
                                 for _ in 0..2 {
                                     loop {
                                         if refresh {
-                                            let mut info_line: String<16> = String::new();
-                                            uwrite!(&mut info_line, "({}%, {}%)", uFmt_f32::Zero(preferences.humidity.0 * 100.), uFmt_f32::Zero(preferences.humidity.1 * 100.)).unwrap();
-                                            render_edit_screen(info_line, editing_lower, &mut lcd);
+                                            uwrite!(&mut info_str, "({}%, {}%)", preferences.humidity.0, preferences.humidity.1).unwrap();
+                                            render_edit_screen(&info_str, editing_lower, &mut lcd);
                                             refresh = false;
                                         }
 
@@ -261,23 +261,23 @@ fn main() -> ! {
 
                                         if up_button.is_high() {
                                             if editing_lower {
-                                                if preferences.humidity.0 < 1.0 {
-                                                    preferences.humidity.0 += 0.01;
+                                                if preferences.humidity.0 < 100 {
+                                                    preferences.humidity.0 += 1;
                                                 }
                                             } else {
-                                                if preferences.humidity.1 < 1.0 {
-                                                    preferences.humidity.1 += 0.01;
+                                                if preferences.humidity.1 < 100 {
+                                                    preferences.humidity.1 += 1;
                                                 }
                                             }
                                             refresh = true;
                                         } else if down_button.is_high() {
                                             if editing_lower {
-                                                if preferences.humidity.0 > 0.0 {
-                                                    preferences.humidity.0 -= 0.01;
+                                                if preferences.humidity.0 > 0 {
+                                                    preferences.humidity.0 -= 1;
                                                 }
                                             } else {
-                                                if preferences.humidity.1 > 0.0 {
-                                                    preferences.humidity.1 -= 0.01;
+                                                if preferences.humidity.1 > 0 {
+                                                    preferences.humidity.1 -= 1;
                                                 }
                                             }
                                             refresh = true;
@@ -302,9 +302,8 @@ fn main() -> ! {
                                 // Minute
                                 loop {
                                     if refresh {
-                                        let mut min_line: String<16> = String::new();
-                                        uwrite!(&mut min_line, "Minute: {}", preferences.date.1).unwrap();
-                                        render_date_edit_screen(min_line, &mut lcd);
+                                        uwrite!(&mut info_str, "Minute: {}", preferences.date.1).unwrap();
+                                        render_date_edit_screen(&info_str, &mut lcd);
                                         refresh = false;
                                     }
 
@@ -330,9 +329,8 @@ fn main() -> ! {
                                 // Hour
                                 loop {
                                     if refresh {
-                                        let mut hour_line: String<16> = String::new();
-                                        uwrite!(&mut hour_line, "Hour: {}", preferences.date.2).unwrap();
-                                        render_date_edit_screen(hour_line, &mut lcd);
+                                        uwrite!(&mut info_str, "Hour: {}", preferences.date.2).unwrap();
+                                        render_date_edit_screen(&info_str, &mut lcd);
                                         refresh = false;
                                     }
                                     arduino_hal::delay_ms(500);
@@ -357,9 +355,8 @@ fn main() -> ! {
                                 // Day
                                 loop {
                                     if refresh {
-                                        let mut day_line: String<16> = String::new();
-                                        uwrite!(&mut day_line, "Day: {}", preferences.date.3).unwrap();
-                                        render_date_edit_screen(day_line, &mut lcd);
+                                        uwrite!(&mut info_str, "Day: {}", preferences.date.3).unwrap();
+                                        render_date_edit_screen(&info_str, &mut lcd);
                                         refresh = false;
                                     }
                                     arduino_hal::delay_ms(500);
@@ -386,9 +383,8 @@ fn main() -> ! {
                                 // TODO But I couldn't care less :)
                                 loop {
                                     if refresh {
-                                        let mut mon_line: String<16> = String::new();
-                                        uwrite!(&mut mon_line, "Month: {}", preferences.date.4).unwrap();
-                                        render_date_edit_screen(mon_line, &mut lcd);
+                                        uwrite!(&mut info_str, "Month: {}", preferences.date.4).unwrap();
+                                        render_date_edit_screen(&info_str, &mut lcd);
                                         refresh = false;
                                     }
                                     arduino_hal::delay_ms(500);
@@ -413,9 +409,8 @@ fn main() -> ! {
                                 // Year
                                 loop {
                                     if refresh {
-                                        let mut yr_line: String<16> = String::new();
-                                        uwrite!(&mut yr_line, "Year: {}", preferences.date.5).unwrap();
-                                        render_date_edit_screen(yr_line, &mut lcd);
+                                        uwrite!(&mut info_str, "Year: {}", preferences.date.5).unwrap();
+                                        render_date_edit_screen(&info_str, &mut lcd);
                                         refresh = false;
                                     }
                                     arduino_hal::delay_ms(500);
@@ -448,8 +443,8 @@ fn main() -> ! {
                                 for index in 0..4 {
                                     loop {
                                         if refresh {
-                                            let info_line: String<16> = preferences.format_watering_time();
-                                            render_edit_screen(info_line, index < 2, &mut lcd);
+                                            info_str = preferences.format_watering_time();
+                                            render_edit_screen(&info_str, index < 2, &mut lcd);
                                             refresh = false;
                                         }
 
@@ -601,9 +596,9 @@ fn main() -> ! {
             }
             Screen::Humidity => {
                 let mut upper_string: String<16> = Default::default();
-                uwrite!(&mut upper_string, "Humidity: {}%", uFmt_f32::One(get_humidity(&data))).unwrap();
+                uwrite!(&mut upper_string, "Humidity: {}%", get_humidity(&data)).unwrap();
                 let mut lower_string: String<16> = Default::default();
-                uwrite!(&mut lower_string, "Safe ({}, {})", uFmt_f32::Zero(preferences.humidity.0), uFmt_f32::Zero(preferences.humidity.1)).unwrap();
+                uwrite!(&mut lower_string, "Safe ({}%, {}%)", preferences.humidity.0, preferences.humidity.1).unwrap();
                 render_screen(Some(upper_string), Some(lower_string), &mut lcd);
             }
             Screen::Pressure => {
@@ -627,7 +622,7 @@ fn main() -> ! {
 /// param bme: BME sensor instance
 /// param delayer: BME sensor delay
 /// param alarm: Buzzer Pin
-fn get_bme_data(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay, alarm: &mut Pin<Output, Dynamic>) -> FieldData {
+fn get_bme_data(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay, alarm: &mut Pin<Output, PB1>) -> FieldData {
     prep_bme(bme, delayer, alarm);
     let (data, _state) = bme.get_sensor_data(delayer).unwrap_or((FieldData::default(), FieldDataCondition::Unchanged));
     data
@@ -639,10 +634,10 @@ fn get_temperature(data: &FieldData) -> f32 {
     data.temperature_celsius() * (9./5.) + 32.
 }
 
-/// Gets percent humidity
+/// Gets percent humidity (whole number)
 /// param data: FieldData from get_bme_data()
-fn get_humidity(data: &FieldData) -> f32 {
-    data.humidity_percent()
+fn get_humidity(data: &FieldData) -> u8 {
+    data.humidity_percent() as u8
 }
 
 /// Gets atmospheric pressure in atmospheres
@@ -657,7 +652,7 @@ fn get_pressure(data: &FieldData) -> f32 {
 /// param bme: BME sensor reference
 /// param delayer: BME delay
 /// param alarm: Buzzer Pin
-fn prep_bme(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay, alarm: &mut Pin<Output, Dynamic>) {
+fn prep_bme(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay, alarm: &mut Pin<Output, PB1>) {
     if bme.set_sensor_mode(delayer, PowerMode::ForcedMode).is_err() {
         loop {
             alarm.set_high();
@@ -671,7 +666,7 @@ fn prep_bme(bme: &mut Bme680<I2c, Delay>, delayer: &mut Delay, alarm: &mut Pin<O
 /// Detects if a fire is present
 /// param smoke_detector: Smoke Detector input pin
 /// returns: if a fire is present
-fn fire_present(smoke_detector: &Pin<Input<PullUp>>) -> bool {
+fn fire_present(smoke_detector: &Pin<Input<PullUp>, PB0>) -> bool {
     smoke_detector.is_high()
 }
 
@@ -700,13 +695,13 @@ fn render_screen(line_one: Option<String<16>>, line_two: Option<String<16>>, lcd
 /// param line: The preferences line
 /// param left_cursor: If the lower bound is selected
 /// param lcd: LCD instance
-fn render_edit_screen(line: String<16>, left_cursor: bool, lcd: &mut Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay<>>) {
+fn render_edit_screen(line: &String<16>, left_cursor: bool, lcd: &mut Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay<>>) {
     // Clear
     lcd.clean_display();
 
     // Write top info
     lcd.set_cursor_pos((0, 0));
-    lcd.write_str_to_cur(&line);
+    lcd.write_str_to_cur(line);
 
     // Create bottom blinking cursor
     if left_cursor {
@@ -720,7 +715,7 @@ fn render_edit_screen(line: String<16>, left_cursor: bool, lcd: &mut Lcd<'static
 /// Renders the current date unit (min, hr, day, etc.) on the first line with a central blinking cursor on the second line
 /// param line: The date line
 /// param lcd: LCD instance
-fn render_date_edit_screen(line: String<16>, lcd: &mut Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay<>>) {
+fn render_date_edit_screen(line: &String<16>, lcd: &mut Lcd<'static, 'static, ParallelSender<Pin<Output>, Pin<OpenDrain>, Pin<Output>, 4>, Delay<>>) {
     // Clear
     lcd.clean_display();
 
@@ -747,7 +742,7 @@ enum RefreshAction {
 /// param wait_time: The amount of time between sensor polling
 /// param preferences: Client Preferences
 /// returns: if the LCD needs an update
-fn should_update(up: &Pin<Input<PullUp>, Dynamic>, down: &Pin<Input<PullUp>, Dynamic>, select: &Pin<Input<PullUp>, Dynamic>, mut wait_time: u16, preferences: &mut Preferences) -> (bool, RefreshAction) {
+fn should_update(up: &Pin<Input<PullUp>, PC0>, down: &Pin<Input<PullUp>, PC1>, select: &Pin<Input<PullUp>, PC2>, mut wait_time: u16, preferences: &mut Preferences) -> (bool, RefreshAction) {
     wait_time += 1;
     // Make sure time is kept track of
     if wait_time % 100 == 0 {
@@ -813,8 +808,11 @@ fn get_screen(index: i8) -> Option<Screen> {
 /// param next: Whether to iterate forward; If false, iterate backwards
 /// returns: The next Screen
 fn next_screen(mut current_screen_index: i8, next: bool) -> Screen {
-    let offset:i8 = if next { 1 } else { -1 };
-    current_screen_index += offset;
+    if next {
+        current_screen_index += 1;
+    } else {
+        current_screen_index -= 1;
+    }
     if current_screen_index < 0 {
         current_screen_index = 4;
     } else if current_screen_index > 4 {
@@ -825,7 +823,7 @@ fn next_screen(mut current_screen_index: i8, next: bool) -> Screen {
 
 pub struct Preferences {
     pub temperature: (f32, f32),
-    pub humidity: (f32, f32),
+    pub humidity: (u8, u8),
     pub date: (u8, u8, u8, u8, u8, u16), // Sec, Min, Hour, Day, Month, Year
     pub watering: Option<(u8, u8, u8, u8)>, // Start (Min, Hour), End (Min, Hour)
 }
@@ -834,7 +832,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Preferences {
             temperature: (60.0, 80.0), // Ideal range is 60F - 80F
-            humidity: (0.6, 0.7), // Ideal range is 60% - 70%
+            humidity: (60, 70), // Ideal range is 60% - 70%
             date: (0, 0, 0, 1, 1, 2000), // Date: 00:00:00 Jan 1 2000
             watering: None, // No default watering times set
         }
@@ -844,54 +842,53 @@ impl Default for Preferences {
 impl Preferences {
     /// Increments by 1 second
     fn tick_time(&mut self) {
-        let (mut sec, min, hour, mut day, mut month, mut year) = self.date;
-        sec += 1;
+        self.date.0 += 1;
 
         // Check for rollovers
-        if sec >= 60 {
-            self.date.1 += sec / 60;
-            self.date.0 = sec % 60;
+        if self.date.0 >= 60 {
+            self.date.1 += self.date.0 / 60;
+            self.date.0 = self.date.0 % 60;
         } else {
             return;
         }
 
-        if min >= 60 {
-            self.date.2 += min / 60;
-            self.date.1 = min % 60;
+        if self.date.1 >= 60 {
+            self.date.2 += self.date.1 / 60;
+            self.date.1 = self.date.1 % 60;
         } else {
             return;
         }
 
-        if hour >= 24 {
-            day += hour / 24;
-            self.date.2 = hour % 24;
+        if self.date.2 >= 24 {
+            self.date.3 += self.date.2 / 24;
+            self.date.2 = self.date.2 % 24;
         } else {
             return;
         }
 
         // Handle month and day rollovers
         loop {
-            let days_in_month = match month {
-                2 => if Self::is_leap_year(year) { 29 } else { 28 },
+            let days_in_month = match self.date.4 {
+                2 => if Self::is_leap_year(self.date.5) { 29 } else { 28 },
                 4 | 6 | 9 | 11 => 30,
                 _ => 31,
             };
 
-            if day > days_in_month {
-                day -= days_in_month;
-                month += 1;
+            if self.date.3 > days_in_month {
+                self.date.3 -= days_in_month;
+                self.date.4 += 1;
             } else {
                 break;
             }
 
-            if month > 12 {
-                month = 1;
-                year += 1;
+            if self.date.4 > 12 {
+                self.date.4 = 1;
+                self.date.5 += 1;
             }
         }
 
         // Update the date tuple
-        self.date = (self.date.0, self.date.1, self.date.2, day, month, year);
+        self.date = (self.date.0, self.date.1, self.date.2, self.date.3, self.date.4, self.date.5);
     }
 
     /// Gets the date in the HH:MM:SS DD/MM/YYYY format
