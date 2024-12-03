@@ -1,8 +1,9 @@
 #![no_std]
 #![no_main]
 
+extern crate panic_halt;
+
 use core::time::Duration;
-use core::fmt::Write;
 use arduino_hal::{pins, Delay, I2c, Peripherals};
 use arduino_hal::hal::port::Dynamic;
 use arduino_hal::port::mode::{Input, OpenDrain, Output, PullUp};
@@ -13,7 +14,8 @@ use lcd1602_driver::command::{DataWidth, State};
 use lcd1602_driver::lcd;
 use lcd1602_driver::lcd::{Basic, Ext, Lcd};
 use lcd1602_driver::sender::ParallelSender;
-use panic_halt as _;
+use ufmt::uwrite;
+use ufmt_float::uFmt_f32;
 
 // How to flash arduino: https://github.com/creativcoder/rust-arduino-blink
 /// Pin out for our project
@@ -190,7 +192,7 @@ fn main() -> ! {
                                     loop {
                                         if refresh {
                                             let mut info_line: String<16> = String::new();
-                                            write!(&mut info_line, "({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap();
+                                            uwrite!(&mut info_line, "({}, {})", uFmt_f32::Zero(preferences.temperature.0), uFmt_f32::Zero(preferences.temperature.1)).unwrap();
                                             render_edit_screen(info_line, editing_lower, &mut lcd);
                                             refresh = false;
                                         }
@@ -245,7 +247,7 @@ fn main() -> ! {
                                     loop {
                                         if refresh {
                                             let mut info_line: String<16> = String::new();
-                                            write!(&mut info_line, "({}%, {}%)", preferences.humidity.0 * 100., preferences.humidity.1 * 100.).unwrap();
+                                            uwrite!(&mut info_line, "({}%, {}%)", uFmt_f32::Zero(preferences.humidity.0 * 100.), uFmt_f32::Zero(preferences.humidity.1 * 100.)).unwrap();
                                             render_edit_screen(info_line, editing_lower, &mut lcd);
                                             refresh = false;
                                         }
@@ -301,7 +303,7 @@ fn main() -> ! {
                                 loop {
                                     if refresh {
                                         let mut min_line: String<16> = String::new();
-                                        write!(&mut min_line, "Minute: {}", preferences.date.1).unwrap();
+                                        uwrite!(&mut min_line, "Minute: {}", preferences.date.1).unwrap();
                                         render_date_edit_screen(min_line, &mut lcd);
                                         refresh = false;
                                     }
@@ -329,7 +331,7 @@ fn main() -> ! {
                                 loop {
                                     if refresh {
                                         let mut hour_line: String<16> = String::new();
-                                        write!(&mut hour_line, "Hour: {}", preferences.date.2).unwrap();
+                                        uwrite!(&mut hour_line, "Hour: {}", preferences.date.2).unwrap();
                                         render_date_edit_screen(hour_line, &mut lcd);
                                         refresh = false;
                                     }
@@ -356,7 +358,7 @@ fn main() -> ! {
                                 loop {
                                     if refresh {
                                         let mut day_line: String<16> = String::new();
-                                        write!(&mut day_line, "Day: {}", preferences.date.3).unwrap();
+                                        uwrite!(&mut day_line, "Day: {}", preferences.date.3).unwrap();
                                         render_date_edit_screen(day_line, &mut lcd);
                                         refresh = false;
                                     }
@@ -385,7 +387,7 @@ fn main() -> ! {
                                 loop {
                                     if refresh {
                                         let mut mon_line: String<16> = String::new();
-                                        write!(&mut mon_line, "Month: {}", preferences.date.4).unwrap();
+                                        uwrite!(&mut mon_line, "Month: {}", preferences.date.4).unwrap();
                                         render_date_edit_screen(mon_line, &mut lcd);
                                         refresh = false;
                                     }
@@ -412,7 +414,7 @@ fn main() -> ! {
                                 loop {
                                     if refresh {
                                         let mut yr_line: String<16> = String::new();
-                                        write!(&mut yr_line, "Year: {}", preferences.date.5).unwrap();
+                                        uwrite!(&mut yr_line, "Year: {}", preferences.date.5).unwrap();
                                         render_date_edit_screen(yr_line, &mut lcd);
                                         refresh = false;
                                     }
@@ -538,20 +540,20 @@ fn main() -> ! {
                         render_screen(Some(String::try_from("Warning!").unwrap()), Some(String::try_from("Fire Present!").unwrap()), &mut lcd);
                         while fire_present(&smoke_detector) {
                             // Enable sprinklers
-                            &sprinklers.set_high();
+                            sprinklers.set_high();
                             // Ensure windows are closed
-                            &roof_vent.set_low();
+                            roof_vent.set_low();
                             // Sound alarm
-                            &buzzer.set_high();
+                            buzzer.set_high();
                             arduino_hal::delay_ms(1000);
                             // Still keep track of time though
                             preferences.tick_time();
                         }
                         // Safe; Disable sprinklers and open vent if it was open before
-                        &buzzer.set_low();
-                        &sprinklers.set_low();
+                        buzzer.set_low();
+                        sprinklers.set_low();
                         if *roof_open {
-                            &roof_vent.set_high();
+                            roof_vent.set_high();
                         }
                     }
 
@@ -595,21 +597,21 @@ fn main() -> ! {
             }
             Screen::Temp => {
                 let mut upper_string: String<16> = Default::default();
-                write!(&mut upper_string, "Temp: {}F", get_temperature(&data)).unwrap();
+                uwrite!(&mut upper_string, "Temp: {}F", uFmt_f32::One(get_temperature(&data))).unwrap();
                 let mut lower_string: String<16> = Default::default();
-                write!(&mut lower_string, "Safe ({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap();
+                uwrite!(&mut lower_string, "Safe ({}, {})", uFmt_f32::Zero(preferences.temperature.0), uFmt_f32::Zero(preferences.temperature.1)).unwrap();
                 render_screen(Some(upper_string), Some(lower_string), &mut lcd);
             }
             Screen::Humidity => {
                 let mut upper_string: String<16> = Default::default();
-                write!(&mut upper_string, "Humidity: {}%", get_humidity(&data)).unwrap();
+                uwrite!(&mut upper_string, "Humidity: {}%", uFmt_f32::One(get_humidity(&data))).unwrap();
                 let mut lower_string: String<16> = Default::default();
-                write!(&mut lower_string, "Safe ({}, {})", preferences.humidity.0, preferences.humidity.1).unwrap();
+                uwrite!(&mut lower_string, "Safe ({}, {})", uFmt_f32::Zero(preferences.humidity.0), uFmt_f32::Zero(preferences.humidity.1)).unwrap();
                 render_screen(Some(upper_string), Some(lower_string), &mut lcd);
             }
             Screen::Pressure => {
                 let mut upper_string: String<16> = Default::default();
-                write!(&mut upper_string, "PRS: {:.3} atm", get_pressure(&data)).unwrap();
+                uwrite!(&mut upper_string, "PRS: {} atm", uFmt_f32::Three(get_pressure(&data))).unwrap();
                 render_screen(Some(upper_string), None, &mut lcd);
             }
             Screen::Date => {
@@ -765,8 +767,9 @@ fn should_update(up: &Pin<Input<PullUp>, Dynamic>, down: &Pin<Input<PullUp>, Dyn
     } else if select.is_high() {
         return (true, RefreshAction::SELECT);
     }
+
     // Check if sensors need updated
-    if wait_time >= 100 || wait_time < 0 { // It could be negative due to rollover
+    if wait_time >= 100 {
         wait_time = 0; // TODO See if this actually works
         return (true, RefreshAction::SENSOR);
     }
@@ -908,8 +911,9 @@ impl Preferences {
         // Format the date as a string
         let mut val1: String<8> = Default::default();
         let mut val2: String<10> = Default::default();
-        write!(&mut val1, "{:02}:{:02}:{:02}", hour, min, sec).unwrap();
-        write!(&mut val2, "{:02}/{:02}/{:04}", day + 1, month + 1, year).unwrap();
+        // TODO Find a way to pad numbers <10 with a "0"
+        uwrite!(&mut val1, "{:?}:{:?}:{:?}", hour, min, sec).unwrap();
+        uwrite!(&mut val2, "{:?}/{:?}/{:?}", day + 1, month + 1, year).unwrap();
         (val1, val2)
     }
 
@@ -955,9 +959,10 @@ impl Preferences {
     fn format_watering_time(&self) -> String<16> {
         let mut str: String<16> = String::new();
         if let Some(watering_time) = self.watering {
-            write!(str, "{:02}:{:02} - {:02}:{:02}", watering_time.1, watering_time.0, watering_time.3, watering_time.2).unwrap();
+            // TODO Find a way to pad numbers <10 with a "0"
+            uwrite!(str, "{}:{} - {}:{}", watering_time.1, watering_time.0, watering_time.3, watering_time.2).unwrap();
         } else {
-            write!(str, "None").unwrap();
+            uwrite!(str, "None").unwrap();
         }
         str
     }
