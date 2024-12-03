@@ -16,7 +16,6 @@ bme680 = "0.6.0"
 heapless = { version = "0.8.0", features = ["ufmt"] }
 lcd1602-driver = "0.2.0"
 ufmt = "0.2.0"
-ufmt_float = "0.2.0"
 
 [dependencies.arduino-hal]
 git = "https://github.com/rahix/avr-hal"
