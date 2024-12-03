@@ -169,20 +169,20 @@ fn main() -> ! {
         if update_needed {
             match action {
                 RefreshAction::UP => {
-                    if button_usable(button_cooldown) {
+                    if button_cooldown == 0 {
                         next_screen(current_screen_index, true);
                         button_cooldown = 50;
                     }
                 }
                 RefreshAction::DOWN => {
-                    if button_usable(button_cooldown) {
+                    if button_cooldown == 0 {
                         next_screen(current_screen_index, false);
                         button_cooldown = 50;
                     }
                 }
                 RefreshAction::SELECT => {
                     // Handle SELECT action
-                    if button_usable(button_cooldown) {
+                    if button_cooldown == 0 {
                         lcd.clean_display();
                         let mut editing_lower: bool = true;
                         let mut update_date: bool = false;
@@ -516,9 +516,7 @@ fn main() -> ! {
                                     if (preferences.watering.unwrap().1 > preferences.watering.unwrap().3) || // Hours are incorrect
                                         (preferences.watering.unwrap().1 == preferences.watering.unwrap().3 && // Minutes are incorrect assuming hours are equal
                                             preferences.watering.unwrap().0 > preferences.watering.unwrap().2) {
-                                        let new_larger: (u8, u8) = (preferences.watering.unwrap().0, preferences.watering.unwrap().1);
-                                        let new_smaller: (u8, u8) = (preferences.watering.unwrap().2, preferences.watering.unwrap().3);
-                                        preferences.watering = Some((new_smaller.0, new_smaller.1, new_larger.0, new_larger.1));
+                                        preferences.watering = Some((preferences.watering.unwrap().2, preferences.watering.unwrap().3, preferences.watering.unwrap().0, preferences.watering.unwrap().1));
                                     }
                                 }
                             }
@@ -558,18 +556,18 @@ fn main() -> ! {
                     let temp = get_temperature(&data);
                     if temp < preferences.temperature.0 || temp > preferences.temperature.1 {
                         // open vent
-                        let _ = roof_vent.set_high();
+                        roof_vent.set_high();
                     } else {
-                        let _ = roof_vent.set_low();
+                        roof_vent.set_low();
                     }
 
                     // Check if humidity is valid
                     let humidity = get_humidity(&data);
                     if humidity < preferences.humidity.0 || humidity > preferences.humidity.1 {
                         // enable sprinklers
-                        let _ = sprinklers.set_high();
+                        sprinklers.set_high();
                     } else {
-                        let _ = sprinklers.set_low();
+                        sprinklers.set_low();
                     }
 
                     // Check if it is watering time
@@ -584,14 +582,11 @@ fn main() -> ! {
             continue;
         }
 
-
-        let current_screen = get_screen(current_screen_index).unwrap();
         let mut data_str: String<12> = String::new();
-        match current_screen {
-            Screen::Temp => {
+        match get_screen(current_screen_index) {
+            Screen::Temperature => {
                 uwrite!(&mut data_str, "Temp: {}F", get_temperature(&data)).unwrap(); // Str size 9
                 render_screen(&data_str, true, &mut lcd);
-                // TODO TESTING
                 uwrite!(&mut data_str, "({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap(); // Str size 8
                 render_screen(&data_str, false, &mut lcd);
             }
@@ -606,7 +601,6 @@ fn main() -> ! {
                 render_screen(&data_str, true, &mut lcd);
             }
             Screen::Date => {
-                // TODO This may be able to be optimized
                 let (time, date) = preferences.get_date_formatted();
                 render_screen(&time, true, &mut lcd);
                 render_screen(&date, false, &mut lcd);
@@ -755,13 +749,6 @@ fn should_update(up: &Pin<Input<PullUp>, PC0>, down: &Pin<Input<PullUp>, PC1>, s
     (false, RefreshAction::SENSOR) // It's ok to return SENSOR since it gets ignored
 }
 
-/// Checks if the button cooldown is active or not
-/// param cooldown: The amount of cooldown left
-/// returns if the button cooldown is inactive
-fn button_usable(cooldown: u8) -> bool {
-    cooldown == 0
-}
-
 /// Ticks the cooldown for buttons
 /// param cooldown: The amount of cooldown left
 fn tick_buttons(mut cooldown: u8) {
@@ -771,7 +758,7 @@ fn tick_buttons(mut cooldown: u8) {
 }
 
 enum Screen {
-    Temp,
+    Temperature,
     Humidity,
     Pressure,
     Date,
@@ -780,15 +767,14 @@ enum Screen {
 
 /// Gets the Screen from an index
 /// param index: index to search for
-/// returns: Optional Screen
-fn get_screen(index: i8) -> Option<Screen> {
+/// returns: Screen matching the index or Watering if the index doesn't exist
+fn get_screen(index: i8) -> Screen {
     match index {
-        0 => Some(Screen::Temp),
-        1 => Some(Screen::Humidity),
-        2 => Some(Screen::Pressure),
-        3 => Some(Screen::Date),
-        4 => Some(Screen::Watering),
-        _ => None,
+        0 => Screen::Temperature,
+        1 => Screen::Humidity,
+        2 => Screen::Pressure,
+        3 => Screen::Date,
+        _ => Screen::Watering, // This includes 4
     }
 }
 
@@ -802,12 +788,13 @@ fn next_screen(mut current_screen_index: i8, next: bool) -> Screen {
     } else {
         current_screen_index -= 1;
     }
+
     if current_screen_index < 0 {
         current_screen_index = 4;
     } else if current_screen_index > 4 {
         current_screen_index = 0;
     }
-    get_screen(current_screen_index).unwrap()
+    get_screen(current_screen_index)
 }
 
 pub struct Preferences {
@@ -881,14 +868,12 @@ impl Preferences {
     /// the function ensures that 1 is added
     /// returns: (HH:MM:SS, DD/MM/YYYY)
     fn get_date_formatted(&mut self) -> (String<8>, String<10>) {
-        let (sec, min, hour, day, month, year) = self.date;
-
         // Format the date as a string
-        let mut val1: String<8> = Default::default();
-        let mut val2: String<10> = Default::default();
+        let mut val1: String<8> = String::new();
+        let mut val2: String<10> = String::new();
         // TODO Find a way to pad numbers <10 with a "0"
-        uwrite!(&mut val1, "{}:{}:{}", hour, min, sec).unwrap();
-        uwrite!(&mut val2, "{}/{}/{}", day + 1, month + 1, year).unwrap();
+        uwrite!(&mut val1, "{}:{}:{}", self.date.2, self.date.1, self.date.0).unwrap();
+        uwrite!(&mut val2, "{}/{}/{}", self.date.3 + 1, self.date.4 + 1, self.date.5).unwrap();
         (val1, val2)
     }
 
