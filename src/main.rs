@@ -583,29 +583,30 @@ fn main() -> ! {
         }
 
         let mut data_str: String<12> = String::new();
-        match get_screen(current_screen_index) {
-            Screen::Temperature => {
+        match current_screen_index {
+            4 => { // Temp
+                // TODO Something shady is happening with this value
                 uwrite!(&mut data_str, "Temp: {}F", get_temperature(&data)).unwrap(); // Str size 9
                 render_screen(&data_str, true, &mut lcd);
                 uwrite!(&mut data_str, "({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap(); // Str size 8
                 render_screen(&data_str, false, &mut lcd);
             }
-            Screen::Humidity => {
+            1 => { // Humidity
                 uwrite!(&mut data_str, "RH: {}%", get_humidity(&data)).unwrap(); // Str size 8
                 render_screen(&data_str, true, &mut lcd);
                 uwrite!(&mut data_str, "({}%, {}%)", preferences.humidity.0, preferences.humidity.1).unwrap(); // Str size 12
                 render_screen(&data_str, false, &mut lcd);
             }
-            Screen::Pressure => {
+            2 => { // Pressure
                 uwrite!(&mut data_str, "PRS: {} mb", get_pressure(&data)).unwrap(); // Str size 12
                 render_screen(&data_str, true, &mut lcd);
             }
-            Screen::Date => {
+            3 => { // Date
                 let (time, date) = preferences.get_date_formatted();
                 render_screen(&time, true, &mut lcd);
                 render_screen(&date, false, &mut lcd);
             }
-            Screen::Watering => {
+            _ => { // Water Schedule
                 render_screen(&preferences.format_watering_time(), true, &mut lcd);
             }
         }
@@ -757,44 +758,23 @@ fn tick_buttons(mut cooldown: u8) {
     }
 }
 
-enum Screen {
-    Temperature,
-    Humidity,
-    Pressure,
-    Date,
-    Watering,
-}
-
-/// Gets the Screen from an index
-/// param index: index to search for
-/// returns: Screen matching the index or Watering if the index doesn't exist
-fn get_screen(index: i8) -> Screen {
-    match index {
-        0 => Screen::Temperature,
-        1 => Screen::Humidity,
-        2 => Screen::Pressure,
-        3 => Screen::Date,
-        _ => Screen::Watering, // This includes 4
-    }
-}
-
 /// Iterates forwards or backwards through Screens
 /// param current_screen: The current screen being displayed
 /// param next: Whether to iterate forward; If false, iterate backwards
 /// returns: The next Screen
-fn next_screen(mut current_screen_index: i8, next: bool) -> Screen {
+fn next_screen(mut current_screen_index: u8, next: bool) -> u8 {
     if next {
         current_screen_index += 1;
     } else {
         current_screen_index -= 1;
     }
 
-    if current_screen_index < 0 {
-        current_screen_index = 4;
-    } else if current_screen_index > 4 {
-        current_screen_index = 0;
+    if current_screen_index < 1 {
+        current_screen_index = 5;
+    } else if current_screen_index > 5 {
+        current_screen_index = 1;
     }
-    get_screen(current_screen_index)
+    current_screen_index
 }
 
 pub struct Preferences {
