@@ -150,8 +150,8 @@ fn main() -> ! {
     // Set up roof vent
     let mut roof_vent = pins.a3.into_output();
 
-    let current_screen_index = 0;
-    let wait_time: u16 = 0;
+    let mut current_screen_index = 0;
+    let mut wait_time: u16 = 0;
     let mut data: FieldData = FieldData::default(); // TODO Make sure this is set to a valid value before using it
     let mut preferences: Preferences = Preferences::default();
 
@@ -162,21 +162,21 @@ fn main() -> ! {
         arduino_hal::delay_ms(10);
 
         // Tick buttons
-        tick_buttons(button_cooldown);
+        button_cooldown = tick_buttons(button_cooldown);
 
-        let (update_needed, action) = should_update(&up_button, &down_button, &select_button, wait_time, &mut preferences);
+        let (update_needed, action) = should_update(&up_button, &down_button, &select_button, &mut wait_time, &mut preferences);
 
         if update_needed {
             match action {
                 RefreshAction::UP => {
                     if button_cooldown == 0 {
-                        next_screen(current_screen_index, true);
+                        current_screen_index = next_screen(current_screen_index, true);
                         button_cooldown = 50;
                     }
                 }
                 RefreshAction::DOWN => {
                     if button_cooldown == 0 {
-                        next_screen(current_screen_index, false);
+                        current_screen_index = next_screen(current_screen_index, false);
                         button_cooldown = 50;
                     }
                 }
@@ -586,10 +586,10 @@ fn main() -> ! {
         match current_screen_index {
             0 => { // Temp
                 // TODO Something shady is happening with this value
-                //uwrite!(&mut data_str, "Temp: {}F", get_temperature(&data)).unwrap(); // Str size 9
-                //render_screen(&data_str, true, &mut lcd);
-                //uwrite!(&mut data_str, "({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap(); // Str size 8
-                //render_screen(&data_str, false, &mut lcd);
+                uwrite!(&mut data_str, "Temp: {}F", get_temperature(&data)).unwrap(); // Str size 9
+                render_screen(&data_str, true, &mut lcd);
+                uwrite!(&mut data_str, "({}, {})", preferences.temperature.0, preferences.temperature.1).unwrap(); // Str size 8
+                render_screen(&data_str, false, &mut lcd);
             }
             1 => { // Humidity
                 uwrite!(&mut data_str, "RH: {}%", get_humidity(&data)).unwrap(); // Str size 8
@@ -726,10 +726,10 @@ enum RefreshAction {
 /// param wait_time: The amount of time between sensor polling
 /// param preferences: Client Preferences
 /// returns: if the LCD needs an update
-fn should_update(up: &Pin<Input<PullUp>, PC0>, down: &Pin<Input<PullUp>, PC1>, select: &Pin<Input<PullUp>, PC2>, mut wait_time: u16, preferences: &mut Preferences) -> (bool, RefreshAction) {
-    wait_time += 1;
+fn should_update(up: &Pin<Input<PullUp>, PC0>, down: &Pin<Input<PullUp>, PC1>, select: &Pin<Input<PullUp>, PC2>, wait_time: &mut u16, preferences: &mut Preferences) -> (bool, RefreshAction) {
+    *wait_time += 1;
     // Make sure time is kept track of
-    if wait_time % 100 == 0 {
+    if *wait_time % 100 == 0 {
         preferences.tick_time();
     }
 
@@ -743,8 +743,8 @@ fn should_update(up: &Pin<Input<PullUp>, PC0>, down: &Pin<Input<PullUp>, PC1>, s
     }
 
     // Check if sensors need updated
-    if wait_time >= 100 {
-        wait_time = 0; // TODO See if this actually works
+    if *wait_time >= 100 {
+        *wait_time = 0; // TODO See if this actually works
         return (true, RefreshAction::SENSOR);
     }
     (false, RefreshAction::SENSOR) // It's ok to return SENSOR since it gets ignored
@@ -752,10 +752,12 @@ fn should_update(up: &Pin<Input<PullUp>, PC0>, down: &Pin<Input<PullUp>, PC1>, s
 
 /// Ticks the cooldown for buttons
 /// param cooldown: The amount of cooldown left
-fn tick_buttons(mut cooldown: u8) {
+/// returns the new value for cooldown
+fn tick_buttons(mut cooldown: u8) -> u8 {
     if cooldown > 0 {
         cooldown -= 1;
     }
+    cooldown
 }
 
 /// Iterates forwards or backwards through Screens
